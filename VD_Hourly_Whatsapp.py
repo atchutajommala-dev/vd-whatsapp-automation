@@ -23,10 +23,11 @@ from googleapiclient.discovery import build
 # =========================
 SHEET_ID = os.getenv("SHEET_ID")
 SHEET_NAME = "VD Top Batch Day View 1st April Onwards"
+REPORT_SHEET_NAME = "VD Report"
 
 IST = pytz.timezone("Asia/Kolkata")
 EVENT_START_DATE = datetime(2026, 4, 1, tzinfo=IST).date()
-SCHEDULE_SLOTS = ["11:30", "15:30", "18:30", "00:30", "08:30"]
+SCHEDULE_SLOTS = ["08:30", "11:30", "15:30", "18:30", "22:30", "00:30"]
 
 # =========================
 # SHEET RANGES
@@ -189,34 +190,62 @@ def export_and_upload_images() -> List[str]:
     )
 
     refresh_creds(creds)
-    sheet_gid = get_sheet_gid(creds, SHEET_NAME)
+    
+    # GIDs for both sheets
+    sheet_main_gid = get_sheet_gid(creds, SHEET_NAME)
+    sheet_report_gid = get_sheet_gid(creds, REPORT_SHEET_NAME)
 
-    logger.info("using sheet %s gid=%s", SHEET_NAME, sheet_gid)
+    logger.info("Main GID: %s, Report GID: %s", sheet_main_gid, sheet_report_gid)
+
+    # 1. Get current day ranges (the original 2 images)
+    day_ranges = get_current_ranges()
+    
+    # 2. Get the current time slot to determine if a 3rd range is needed
+    now_ist = datetime.now(IST)
+    current_time_str = now_ist.strftime("%H:%M")
+    
+    # Find active slot (within 45 min buffer)
+    active_slot = None
+    for slot in SCHEDULE_SLOTS:
+        sh, sm = map(int, slot.split(":"))
+        slot_dt = now_ist.replace(hour=sh, minute=sm, second=0, microsecond=0)
+        # Handle wraparound for 00:30 if needed, but simple diff is usually fine
+        diff = abs((now_ist - slot_dt).total_seconds()) / 60
+        if diff < 45:
+            active_slot = slot
+            break
+            
+    logger.info("Current IST Time: %s, Identified Slot: %s", current_time_str, active_slot)
+
+    # Prepare final list of tasks: [(sheet_name, gid, range_string), ...]
+    tasks = []
+    
+    # Add the standard 2 images
+    for r in day_ranges:
+        tasks.append((SHEET_NAME, sheet_main_gid, r))
+        
+    # Add the new 3rd range based on the slot
+    if active_slot == "08:30":
+        tasks.append((REPORT_SHEET_NAME, sheet_report_gid, f"{REPORT_SHEET_NAME}!X33:AA41"))
+    elif active_slot in ["11:30", "15:30", "18:30", "22:30"]:
+        tasks.append((REPORT_SHEET_NAME, sheet_report_gid, f"{REPORT_SHEET_NAME}!X22:AF31"))
+    elif active_slot == "00:30":
+        logger.info("00:30 slot: No new images to add per configuration.")
 
     uploaded_urls = []
 
-    ranges = get_current_ranges()
-    for i, sheet_range in enumerate(ranges, start=1):
-        range_only = sheet_range.split("!")[1]
+    for i, (s_name, gid, s_range) in enumerate(tasks, start=1):
+        range_only = s_range.split("!")[1]
 
         export_url = (
             f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export"
-            f"?format=pdf"
-            f"&portrait=false"
-            f"&gid={sheet_gid}"
-            f"&range={range_only}"
-            f"&size=A2"
-            f"&scale=5"
-            f"&top_margin=0.25"
-            f"&bottom_margin=0.25"
-            f"&left_margin=0.25"
-            f"&right_margin=0.25"
-            f"&fzr=false"
-            f"&gridlines=false"
-            f"&printtitle=false"
+            f"?format=pdf&portrait=false&gid={gid}&range={range_only}"
+            f"&size=A2&scale=5&top_margin=0.25&bottom_margin=0.25"
+            f"&left_margin=0.25&right_margin=0.25&fzr=false"
+            f"&gridlines=false&printtitle=false"
         )
 
-        logger.info("exporting range %s", sheet_range)
+        logger.info("Exporting task %s: %s (%s)", i, s_range, s_name)
 
         response = requests.get(
             export_url,
@@ -226,7 +255,6 @@ def export_and_upload_images() -> List[str]:
         response.raise_for_status()
 
         pages = convert_from_bytes(response.content, dpi=300, first_page=1, last_page=1)
-
         img = pages[0].convert("RGB")
         img = ImageEnhance.Sharpness(img).enhance(2.0)
         img = crop_white_space(img)
@@ -244,7 +272,7 @@ def export_and_upload_images() -> List[str]:
                     files={"file": f},
                     data={
                         "upload_preset": UPLOAD_PRESET,
-                        "folder": f"BizCat_Exports/{datetime.now(pytz.utc).strftime('%Y-%m-%d')}",
+                        "folder": f"BizCat_Exports/{now_ist.strftime('%Y-%m-%d')}",
                     },
                     timeout=60,
                 )
@@ -253,7 +281,7 @@ def export_and_upload_images() -> List[str]:
             url = upload.json().get("secure_url")
             if url:
                 uploaded_urls.append(url)
-                logger.info("uploaded %s", url)
+                logger.info("Uploaded %s: %s", s_range, url)
 
         finally:
             os.remove(filename)

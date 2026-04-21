@@ -200,37 +200,45 @@ def export_and_upload_images() -> List[str]:
     # 1. Get current day ranges (the original 2 images)
     day_ranges = get_current_ranges()
     
-    # 2. Get the current time slot to determine if a 3rd range is needed
+    # 2. Bracket-based Algorithm (Handles delays automatically)
     now_ist = datetime.now(IST)
-    current_time_str = now_ist.strftime("%H:%M")
+    now_mins = now_ist.hour * 60 + now_ist.minute
     
-    # Find active slot (within 45 min buffer)
-    active_slot = None
-    for slot in SCHEDULE_SLOTS:
-        sh, sm = map(int, slot.split(":"))
-        slot_dt = now_ist.replace(hour=sh, minute=sm, second=0, microsecond=0)
-        # Handle wraparound for 00:30 if needed, but simple diff is usually fine
-        diff = abs((now_ist - slot_dt).total_seconds()) / 60
-        if diff < 45:
-            active_slot = slot
-            break
+    # Define timing points in minutes desde midnight
+    M0830 = 8 * 60 + 30  # 510
+    M1130 = 11 * 60 + 30 # 690
+    M0030 = 0 * 60 + 30  # 30
+    
+    extra_range = None
+    bracket_label = ""
+    
+    if M0830 <= now_mins < M1130:
+        # Bracket: 8:30 AM to 11:30 AM
+        extra_range = f"{REPORT_SHEET_NAME}!X33:AA41"
+        bracket_label = "08:30 AM Report"
+    elif (now_mins >= M1130) or (now_mins < M0030):
+        # Bracket: 11:30 AM until 00:30 AM (Wraps around midnight)
+        # Covers 11:30, 15:30, 18:30, and 22:30 slots
+        extra_range = f"{REPORT_SHEET_NAME}!X22:AF31"
+        bracket_label = "Midday/Evening Report"
+    else:
+        # Bracket: 00:30 AM to 08:29 AM
+        extra_range = None
+        bracket_label = "00:30 AM (Standard Only)"
             
-    logger.info("Current IST Time: %s, Identified Slot: %s", current_time_str, active_slot)
+    logger.info("IST Time: %s (%d mins), Identified Bracket: %s", 
+                now_ist.strftime("%H:%M"), now_mins, bracket_label)
 
     # Prepare final list of tasks: [(sheet_name, gid, range_string), ...]
     tasks = []
     
-    # Add the standard 2 images
+    # Add the standard 2 images (Don't disturb)
     for r in day_ranges:
         tasks.append((SHEET_NAME, sheet_main_gid, r))
         
-    # Add the new 3rd range based on the slot
-    if active_slot == "08:30":
-        tasks.append((REPORT_SHEET_NAME, sheet_report_gid, f"{REPORT_SHEET_NAME}!X33:AA41"))
-    elif active_slot in ["11:30", "15:30", "18:30", "22:30"]:
-        tasks.append((REPORT_SHEET_NAME, sheet_report_gid, f"{REPORT_SHEET_NAME}!X22:AF31"))
-    elif active_slot == "00:30":
-        logger.info("00:30 slot: No new images to add per configuration.")
+    # Add the extra range if identified by the bracket algorithm
+    if extra_range:
+        tasks.append((REPORT_SHEET_NAME, sheet_report_gid, extra_range))
 
     uploaded_urls = []
 

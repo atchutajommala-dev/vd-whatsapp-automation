@@ -22,64 +22,18 @@ from googleapiclient.discovery import build
 # ENV VARIABLES
 # =========================
 SHEET_ID = os.getenv("SHEET_ID")
-SHEET_NAME = "VD Top Batch Day View 1st April Onwards"
 REPORT_SHEET_NAME = "VD Report"
 
 IST = pytz.timezone("Asia/Kolkata")
-EVENT_START_DATE = datetime(2026, 4, 1, tzinfo=IST).date()
 SCHEDULE_SLOTS = ["08:30", "11:30", "15:30", "18:30", "22:30", "00:30"]
 
 # =========================
-# SHEET RANGES
+# SHEET RANGES (REMOVED STANDARD DAY VIEWS)
 # =========================
-DAY_RANGES = [
-    [f"{SHEET_NAME}!A5:F20", f"{SHEET_NAME}!K6:R20"],     # Day 0
-    [f"{SHEET_NAME}!A21:F37", f"{SHEET_NAME}!K23:R37"],   # Day 1
-    [f"{SHEET_NAME}!A38:F54", f"{SHEET_NAME}!K40:R54"],   # Day 2
-    [f"{SHEET_NAME}!A55:F71", f"{SHEET_NAME}!K57:R71"],   # Day 3
-    [f"{SHEET_NAME}!A72:F88", f"{SHEET_NAME}!K74:R88"],   # Day 4
-    [f"{SHEET_NAME}!A89:F105", f"{SHEET_NAME}!K91:R105"], # Day 5
-    [f"{SHEET_NAME}!A106:F122", f"{SHEET_NAME}!K108:R122"], # Day 6
-    [f"{SHEET_NAME}!A123:F139", f"{SHEET_NAME}!K125:R139"], # Day 7
-    [f"{SHEET_NAME}!A140:F156", f"{SHEET_NAME}!K142:R156"], # Day 8
-    [f"{SHEET_NAME}!A157:F173", f"{SHEET_NAME}!K159:R173"], # Day 9
-    [f"{SHEET_NAME}!A174:F190", f"{SHEET_NAME}!K176:R190"], # Day 10
-    [f"{SHEET_NAME}!A191:F211", f"{SHEET_NAME}!K193:R211"], # Day 11
-    [f"{SHEET_NAME}!A212:F232", f"{SHEET_NAME}!K214:R232"], # Day 12
-    [f"{SHEET_NAME}!A233:F253", f"{SHEET_NAME}!K235:R253"], # Day 13
-    [f"{SHEET_NAME}!A254:F274", f"{SHEET_NAME}!K257:R274"], # Day 14
-    [f"{SHEET_NAME}!A275:F295", f"{SHEET_NAME}!K277:R295"], # Day 15
-    [f"{SHEET_NAME}!A296:F316", f"{SHEET_NAME}!K298:R316"], # Day 16
-    [f"{SHEET_NAME}!A317:F337", f"{SHEET_NAME}!K319:R337"], # Day 17
-    [f"{SHEET_NAME}!A338:F358", f"{SHEET_NAME}!K340:R358"], # Day 18
-    [f"{SHEET_NAME}!A359:F379", f"{SHEET_NAME}!K361:R379"], # Day 19
-    [f"{SHEET_NAME}!A380:F400", f"{SHEET_NAME}!K382:R400"], # Day 20
-    [f"{SHEET_NAME}!A401:F421", f"{SHEET_NAME}!K403:R421"], # Day 21
-    [f"{SHEET_NAME}!A422:F442", f"{SHEET_NAME}!K424:R442"], # Day 22
-    [f"{SHEET_NAME}!A443:F463", f"{SHEET_NAME}!K445:R463"], # Day 23
-    [f"{SHEET_NAME}!A464:F484", f"{SHEET_NAME}!K466:R484"], # Day 24
-    [f"{SHEET_NAME}!A485:F505", f"{SHEET_NAME}!K487:R505"], # Day 25
-    [f"{SHEET_NAME}!A506:F526", f"{SHEET_NAME}!K508:R526"], # Day 26
-    [f"{SHEET_NAME}!A527:F547", f"{SHEET_NAME}!K529:R547"], # Day 27
-    [f"{SHEET_NAME}!A548:F568", f"{SHEET_NAME}!K550:R568"], # Day 28
-    [f"{SHEET_NAME}!A569:F589", f"{SHEET_NAME}!K571:R589"], # Day 29
-]
+# Standard day-based ranges have been removed as per request.
+# Only VD Report ranges are now active.
 
-def get_current_ranges():
-    now_ist = datetime.now(IST)
-    
-    # Rollover logic: Before 10:00 AM IST, still consider it the previous reporting day
-    cutoff_today = now_ist.replace(hour=10, minute=00, second=0, microsecond=0)
-    if now_ist < cutoff_today:
-        effective_date = (now_ist - timedelta(days=1)).date()
-    else:
-        effective_date = now_ist.date()
-        
-    day_diff = (effective_date - EVENT_START_DATE).days
-    day_index = min(max(0, day_diff), 30)
-    
-    logger.info("Reporting Day Index: %s (Effective Date: %s)", day_index, effective_date)
-    return DAY_RANGES[day_index]
+
 
 # =========================
 # CLOUDINARY
@@ -191,14 +145,10 @@ def export_and_upload_images() -> List[str]:
 
     refresh_creds(creds)
     
-    # GIDs for both sheets
-    sheet_main_gid = get_sheet_gid(creds, SHEET_NAME)
+    # GID for Report sheet
     sheet_report_gid = get_sheet_gid(creds, REPORT_SHEET_NAME)
 
-    logger.info("Main GID: %s, Report GID: %s", sheet_main_gid, sheet_report_gid)
-
-    # 1. Get current day ranges (the original 2 images)
-    day_ranges = get_current_ranges()
+    logger.info("Report GID: %s", sheet_report_gid)
     
     # 2. Bracket-based Algorithm (Handles delays automatically)
     now_ist = datetime.now(IST)
@@ -226,19 +176,14 @@ def export_and_upload_images() -> List[str]:
         extra_range = None
         bracket_label = "00:30 AM (Standard Only)"
             
-    logger.info("IST Time: %s (%d mins), Identified Bracket: %s", 
-                now_ist.strftime("%H:%M"), now_mins, bracket_label)
-
     # Prepare final list of tasks: [(sheet_name, gid, range_string), ...]
     tasks = []
-    
-    # Add the standard 2 images (Don't disturb)
-    for r in day_ranges:
-        tasks.append((SHEET_NAME, sheet_main_gid, r))
-        
+
     # Add the extra range if identified by the bracket algorithm
     if extra_range:
         tasks.append((REPORT_SHEET_NAME, sheet_report_gid, extra_range))
+    else:
+        logger.info("No report range scheduled for this time bracket (%s)", bracket_label)
 
     uploaded_urls = []
 

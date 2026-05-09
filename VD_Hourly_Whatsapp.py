@@ -19,20 +19,67 @@ from googleapiclient.discovery import build
 
 
 # =========================
-# ENV VARIABLES
+# ENV VARIABLES & SETTINGS
 # =========================
 SHEET_ID = os.getenv("SHEET_ID")
-REPORT_SHEET_NAME = "VD Report"
-
+SHEET_NAME = "VD Top Batch Day View 1st April Onwards"
 IST = pytz.timezone("Asia/Kolkata")
-SCHEDULE_SLOTS = ["08:30", "11:30", "15:30", "18:30", "22:30", "00:30"]
+EVENT_START_DATE = datetime(2026, 5, 1, tzinfo=IST).date()
 
 # =========================
-# SHEET RANGES (REMOVED STANDARD DAY VIEWS)
+# SHEET RANGES
 # =========================
-# Standard day-based ranges have been removed as per request.
-# Only VD Report ranges are now active.
+DAY_RANGES = [
+    [f"{SHEET_NAME}!A590:F610", f"{SHEET_NAME}!K592:R610"],     # Day 0
+    [f"{SHEET_NAME}!A611:F631", f"{SHEET_NAME}!K613:R631"],     # Day 1
+    [f"{SHEET_NAME}!A632:F652", f"{SHEET_NAME}!K634:R652"],     # Day 2
+    [f"{SHEET_NAME}!A653:F673", f"{SHEET_NAME}!K655:R673"],     # Day 3
+    [f"{SHEET_NAME}!A674:F694", f"{SHEET_NAME}!K676:R694"],     # Day 4
+    [f"{SHEET_NAME}!A695:F715", f"{SHEET_NAME}!K697:R715"],     # Day 5
+    [f"{SHEET_NAME}!A716:F736", f"{SHEET_NAME}!K718:R736"],     # Day 6
+    [f"{SHEET_NAME}!A737:F757", f"{SHEET_NAME}!K739:R757"],     # Day 7
+    [f"{SHEET_NAME}!A758:F778", f"{SHEET_NAME}!K760:R778"],     # Day 8
+    [f"{SHEET_NAME}!A779:F799", f"{SHEET_NAME}!K781:R799"],     # Day 9
+    [f"{SHEET_NAME}!A800:F820", f"{SHEET_NAME}!K802:R820"],     # Day 10
+    [f"{SHEET_NAME}!A821:F841", f"{SHEET_NAME}!K823:R841"],     # Day 11
+    [f"{SHEET_NAME}!A842:F862", f"{SHEET_NAME}!K844:R862"],     # Day 12
+    [f"{SHEET_NAME}!A863:F883", f"{SHEET_NAME}!K865:R883"],     # Day 13
+    [f"{SHEET_NAME}!A884:F904", f"{SHEET_NAME}!K886:R904"],     # Day 14
+    [f"{SHEET_NAME}!A905:F925", f"{SHEET_NAME}!K907:R925"],     # Day 15
+    [f"{SHEET_NAME}!A926:F946", f"{SHEET_NAME}!K928:R946"],     # Day 16
+    [f"{SHEET_NAME}!A947:F967", f"{SHEET_NAME}!K949:R967"],     # Day 17
+    [f"{SHEET_NAME}!A968:F988", f"{SHEET_NAME}!K970:R988"],     # Day 18
+    [f"{SHEET_NAME}!A989:F1009", f"{SHEET_NAME}!K991:R1009"],   # Day 19
+    [f"{SHEET_NAME}!A1010:F1030", f"{SHEET_NAME}!K1012:R1030"], # Day 20
+    [f"{SHEET_NAME}!A1031:F1051", f"{SHEET_NAME}!K1033:R1051"], # Day 21
+    [f"{SHEET_NAME}!A1052:F1072", f"{SHEET_NAME}!K1054:R1072"], # Day 22
+    [f"{SHEET_NAME}!A1073:F1093", f"{SHEET_NAME}!K1075:R1093"], # Day 23
+    [f"{SHEET_NAME}!A1094:F1114", f"{SHEET_NAME}!K1096:R1114"], # Day 24
+    [f"{SHEET_NAME}!A1115:F1135", f"{SHEET_NAME}!K1117:R1135"], # Day 25
+    [f"{SHEET_NAME}!A1136:F1156", f"{SHEET_NAME}!K1138:R1156"], # Day 26
+    [f"{SHEET_NAME}!A1157:F1177", f"{SHEET_NAME}!K1159:R1177"], # Day 27
+    [f"{SHEET_NAME}!A1178:F1198", f"{SHEET_NAME}!K1180:R1198"], # Day 28
+    [f"{SHEET_NAME}!A1199:F1219", f"{SHEET_NAME}!K1201:R1219"], # Day 29
+    [f"{SHEET_NAME}!A1220:F1240", f"{SHEET_NAME}!K1222:R1240"], # Day 30
+]
 
+
+def get_current_ranges():
+    now_ist = datetime.now(IST)
+    
+    # Rollover logic: Before 10:00 AM IST, still consider it the previous reporting day
+    cutoff_today = now_ist.replace(hour=10, minute=0, second=0, microsecond=0)
+    if now_ist < cutoff_today:
+        effective_date = (now_ist - timedelta(days=1)).date()
+    else:
+        effective_date = now_ist.date()
+        
+    day_diff = (effective_date - EVENT_START_DATE).days
+    # The list has 31 items (index 0 to 30)
+    day_index = min(max(0, day_diff), 30)
+    
+    logger.info("Reporting Day Index: %s (Effective Date: %s)", day_index, effective_date)
+    return DAY_RANGES[day_index]
 
 
 # =========================
@@ -50,8 +97,6 @@ CAMPAIGN_NAME = os.getenv("AISENSY_CAMPAIGN_NAME")
 DESTINATIONS = [
     d.strip() for d in os.getenv("DESTINATIONS", "").split(",") if d.strip()
 ]
-
-# TODAY string will be generated inside the loop
 
 # =========================
 # IMAGE SETTINGS
@@ -145,45 +190,22 @@ def export_and_upload_images() -> List[str]:
 
     refresh_creds(creds)
     
-    # GID for Report sheet
-    sheet_report_gid = get_sheet_gid(creds, REPORT_SHEET_NAME)
-
-    logger.info("Report GID: %s", sheet_report_gid)
-    
-    # 2. Bracket-based Algorithm (Handles delays automatically)
     now_ist = datetime.now(IST)
     now_mins = now_ist.hour * 60 + now_ist.minute
     
-    # Define timing points in minutes desde midnight
-    M0830 = 8 * 60 + 30  # 510
-    M1130 = 11 * 60 + 30 # 690
-    M0030 = 0 * 60 + 30  # 30
-    
-    extra_range = None
-    bracket_label = ""
-    
-    if M0830 <= now_mins < M1130:
-        # Bracket: 8:30 AM to 11:30 AM
-        extra_range = f"{REPORT_SHEET_NAME}!X33:AA41"
-        bracket_label = "08:30 AM Report"
-    elif (now_mins >= M1130) or (now_mins < M0030):
-        # Bracket: 11:30 AM until 00:30 AM (Wraps around midnight)
-        # Covers 11:30, 15:30, 18:30, and 22:30 slots
-        extra_range = f"{REPORT_SHEET_NAME}!X22:AF31"
-        bracket_label = "Midday/Evening Report"
-    else:
-        # Bracket: 00:30 AM to 08:29 AM
-        extra_range = None
-        bracket_label = "00:30 AM (Standard Only)"
-            
-    # Prepare final list of tasks: [(sheet_name, gid, range_string), ...]
-    tasks = []
+    # Execution Window: 8:30 AM to 1:30 AM (t+1)
+    # If between 1:31 AM and 8:29 AM, skip.
+    if 1 * 60 + 30 < now_mins < 8 * 60 + 30:
+        logger.info("Current time %s is outside the scheduled window (08:30 - 01:30). Skipping.", now_ist.strftime("%H:%M"))
+        return []
 
-    # Add the extra range if identified by the bracket algorithm
-    if extra_range:
-        tasks.append((REPORT_SHEET_NAME, sheet_report_gid, extra_range))
-    else:
-        logger.info("No report range scheduled for this time bracket (%s)", bracket_label)
+    # Get current day ranges
+    day_ranges = get_current_ranges()
+    sheet_gid = get_sheet_gid(creds, SHEET_NAME)
+    
+    tasks = []
+    for r in day_ranges:
+        tasks.append((SHEET_NAME, sheet_gid, r))
 
     uploaded_urls = []
 
@@ -296,10 +318,12 @@ if __name__ == "__main__":
     
     try:
         urls = export_and_upload_images()
-        send_via_aisensy(urls)
-        logger.info("Automation run completed successfully")
+        if urls:
+            send_via_aisensy(urls)
+            logger.info("Automation run completed successfully")
+        else:
+            logger.info("No images to send. Automation run finished.")
     except Exception as e:
         logger.error("Error during automation run: %s", e, exc_info=True)
-        # We might want to exit with non-zero if it's a cron job for monitoring
         import sys
         sys.exit(1)

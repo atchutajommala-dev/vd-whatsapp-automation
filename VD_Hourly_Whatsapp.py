@@ -67,8 +67,8 @@ DAY_RANGES = [
 def get_current_ranges():
     now_ist = datetime.now(IST)
     
-    # Rollover logic: Before 10:00 AM IST, still consider it the previous reporting day
-    cutoff_today = now_ist.replace(hour=10, minute=0, second=0, microsecond=0)
+    # Rollover logic: Before 5:00 AM IST, still consider it the previous reporting day
+    cutoff_today = now_ist.replace(hour=5, minute=0, second=0, microsecond=0)
     if now_ist < cutoff_today:
         effective_date = (now_ist - timedelta(days=1)).date()
     else:

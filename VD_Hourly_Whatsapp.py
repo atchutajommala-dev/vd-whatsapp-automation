@@ -23,8 +23,17 @@ from googleapiclient.discovery import build
 # =========================
 SHEET_ID = os.getenv("SHEET_ID")
 SHEET_NAME = "VD Top Batch Day View 1st April Onwards"
+VD_REPORT_SHEET_NAME = "VD Report"
 IST = pytz.timezone("Asia/Kolkata")
 EVENT_START_DATE = datetime(2026, 5, 1, tzinfo=IST).date()
+
+# =========================
+# VD REPORT TIME-BASED RANGES
+# =========================
+# Between 6:00 AM and 9:00 AM IST → morning range
+VD_REPORT_MORNING_RANGE = "X33:AB42"   # 6 AM – 9 AM IST
+# All other times → default range
+VD_REPORT_DEFAULT_RANGE = "X22:AC32"  # Outside 6–9 AM IST
 
 # =========================
 # SHEET RANGES
@@ -177,6 +186,21 @@ def crop_white_space(img: Image.Image) -> Image.Image:
 # =========================
 # MAIN LOGIC
 # =========================
+def get_vd_report_range(now_ist: datetime) -> str:
+    """Return the VD Report sheet range based on current IST time.
+
+    6:00 AM <= time < 9:00 AM  →  morning range (X33:AB42)
+    Any other time             →  default range  (X22:AC32)
+    """
+    hour = now_ist.hour
+    if 6 <= hour < 9:
+        logger.info("VD Report: morning window (06:00–09:00 IST) → %s", VD_REPORT_MORNING_RANGE)
+        return VD_REPORT_MORNING_RANGE
+    else:
+        logger.info("VD Report: outside morning window → %s", VD_REPORT_DEFAULT_RANGE)
+        return VD_REPORT_DEFAULT_RANGE
+
+
 def export_and_upload_images() -> List[str]:
     creds_info = json.loads(os.getenv("GOOGLE_CREDENTIALS_JSON"))
 
@@ -199,13 +223,20 @@ def export_and_upload_images() -> List[str]:
         logger.info("Current time %s is outside the scheduled window (08:30 - 01:30). Skipping.", now_ist.strftime("%H:%M"))
         return []
 
-    # Get current day ranges
+    # Get current day ranges (existing sheet)
     day_ranges = get_current_ranges()
     sheet_gid = get_sheet_gid(creds, SHEET_NAME)
     
     tasks = []
     for r in day_ranges:
         tasks.append((SHEET_NAME, sheet_gid, r))
+
+    # ── VD Report: time-based range ──────────────────────────────────────
+    vd_report_range_str = get_vd_report_range(now_ist)
+    vd_report_full_range = f"{VD_REPORT_SHEET_NAME}!{vd_report_range_str}"
+    vd_report_gid = get_sheet_gid(creds, VD_REPORT_SHEET_NAME)
+    tasks.append((VD_REPORT_SHEET_NAME, vd_report_gid, vd_report_full_range))
+    logger.info("Added VD Report range: %s", vd_report_full_range)
 
     uploaded_urls = []
 

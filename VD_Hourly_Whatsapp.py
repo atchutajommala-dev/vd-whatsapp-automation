@@ -31,9 +31,9 @@ EVENT_START_DATE = datetime(2026, 6, 1, tzinfo=IST).date()
 # VD REPORT TIME-BASED RANGES
 # =========================
 # Between 6:00 AM and 9:00 AM IST → morning range
-VD_REPORT_MORNING_RANGE = "X33:AB42"   # 6 AM – 9 AM IST
+VD_REPORT_MORNING_RANGE = "AN23:AR42"   # 6 AM – 9 AM IST
 # All other times → default range
-VD_REPORT_DEFAULT_RANGE = "X22:AC32"  # Outside 6–9 AM IST
+VD_REPORT_DEFAULT_RANGE = "W22:AF39"  # Outside 6–9 AM IST
 
 # =========================
 # SHEET RANGES
